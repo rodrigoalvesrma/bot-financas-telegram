@@ -15,7 +15,14 @@ scope = [
     "https://www.googleapis.com/auth/drive"
 ]
 
-creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+import os
+import json
+from oauth2client.service_account import ServiceAccountCredentials
+
+credenciais_json = os.getenv("GOOGLE_CREDENTIALS")
+credenciais_dict = json.loads(credenciais_json)
+
+creds = ServiceAccountCredentials.from_json_keyfile_dict(credenciais_dict, scope)
 client = gspread.authorize(creds)
 
 sheet = client.open("Controle Financeiro").sheet1
