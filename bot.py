@@ -128,12 +128,11 @@ async def registrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         valor = valor.replace("+", "")
 
     try:
-        # converte vírgula para ponto
-        valor = valor.replace(",", ".")
 
         # transforma em número
         valor = valor.replace(",", ".")
         valor = float(valor)
+        valor = round(valor, 2)
 
     except:
         await update.message.reply_text(
