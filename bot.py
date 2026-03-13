@@ -132,6 +132,7 @@ async def registrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         valor = valor.replace(",", ".")
 
         # transforma em número
+        valor = valor.replace(",", ".")
         valor = float(valor)
 
     except:
