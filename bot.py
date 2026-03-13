@@ -105,6 +105,37 @@ def detectar_categoria(texto):
     return "Outros"
 
 
+def obter_valor_numerico(registro):
+
+    """
+    Converte o campo 'Valor' do registro para float de forma segura,
+    lidando com formatos como '39,90', 'R$ 39,90', números já numéricos
+    e células vazias. Se não for possível converter, retorna 0.0.
+    """
+
+    valor = registro.get("Valor", 0)
+
+    if isinstance(valor, (int, float)):
+        return float(valor)
+
+    if isinstance(valor, str):
+
+        texto = valor.strip()
+
+        if not texto:
+            return 0.0
+
+        texto = texto.replace("R$", "").replace(" ", "")
+        # troca vírgula por ponto para formato float padrão
+        texto = texto.replace(".", "").replace(",", ".")
+
+        try:
+            return float(texto)
+        except:
+            return 0.0
+
+    return 0.0
+
 # ----------------------------
 # FUNÇÃO PRINCIPAL
 # ----------------------------
@@ -165,7 +196,7 @@ async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for r in registros:
 
-        valor = float(r["Valor"])
+        valor = obter_valor_numerico(r)
 
         if r["Tipo"] == "Entrada":
             entradas += valor
@@ -202,7 +233,7 @@ async def mes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if mes_atual in data:
 
-            valor = float(r["Valor"])
+            valor = obter_valor_numerico(r)
 
             if r["Tipo"] == "Entrada":
                 entradas += valor
@@ -235,7 +266,7 @@ async def categorias(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if r["Tipo"] == "Saída":
 
             categoria = r["Categoria"]
-            valor = float(r["Valor"])
+            valor = obter_valor_numerico(r)
 
             if categoria not in categorias_total:
                 categorias_total[categoria] = 0
@@ -265,7 +296,7 @@ async def hoje(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if r["Data"] == hoje and r["Tipo"] == "Saída":
 
-            valor = float(r["Valor"])
+            valor = obter_valor_numerico(r)
             descricao = r["Descrição"]
 
             total += valor
@@ -290,7 +321,7 @@ async def grafico(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if r["Tipo"] == "Saída":
 
             categoria = r["Categoria"]
-            valor = float(r["Valor"])
+            valor = obter_valor_numerico(r)
 
             if categoria not in categorias_total:
                 categorias_total[categoria] = 0
@@ -333,7 +364,7 @@ async def mesgrafico(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if mes_atual in data and r["Tipo"] == "Saída":
 
             categoria = r["Categoria"]
-            valor = float(r["Valor"])
+            valor = obter_valor_numerico(r)
 
             if categoria not in categorias_total:
                 categorias_total[categoria] = 0
