@@ -384,3 +384,12 @@ app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, registrar))
 print("Bot rodando...")
 
 app.run_polling()
+
+while True:
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        print(f"Erro detectado: {e}")
+        print("Reiniciando bot em 5 segundos...")
+        import time
+        time.sleep(5)
