@@ -105,36 +105,33 @@ def detectar_categoria(texto):
     return "Outros"
 
 
-def obter_valor_numerico(registro):
+def parse_valor(valor_bruto):
 
     """
-    Converte o campo 'Valor' do registro para float de forma segura,
-    lidando com formatos como '39,90', 'R$ 39,90', números já numéricos
+    Converte o valor bruto (string, int, float) em float de forma segura.
+    Aceita formatos como '39,90', 'R$ 39,90', números já numéricos
     e células vazias. Se não for possível converter, retorna 0.0.
     """
 
-    valor = registro.get("Valor", 0)
+    if isinstance(valor_bruto, (int, float)):
+        return float(valor_bruto)
 
-    if isinstance(valor, (int, float)):
-        return float(valor)
+    if valor_bruto is None:
+        return 0.0
 
-    if isinstance(valor, str):
+    texto = str(valor_bruto).strip()
 
-        texto = valor.strip()
+    if not texto:
+        return 0.0
 
-        if not texto:
-            return 0.0
+    texto = texto.replace("R$", "").replace(" ", "")
+    # remove separador de milhar e converte vírgula para ponto
+    texto = texto.replace(".", "").replace(",", ".")
 
-        texto = texto.replace("R$", "").replace(" ", "")
-        # troca vírgula por ponto para formato float padrão
-        texto = texto.replace(".", "").replace(",", ".")
-
-        try:
-            return float(texto)
-        except:
-            return 0.0
-
-    return 0.0
+    try:
+        return float(texto)
+    except:
+        return 0.0
 
 # ----------------------------
 # FUNÇÃO PRINCIPAL
@@ -189,16 +186,21 @@ async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update):
         return
 
-    registros = sheet.get_all_records()
+    registros = sheet.get_all_values()
 
     entradas = 0
     saidas = 0
 
-    for r in registros:
+    # primeira linha é o cabeçalho
+    for r in registros[1:]:
 
-        valor = obter_valor_numerico(r)
+        if len(r) < 4:
+            continue
 
-        if r["Tipo"] == "Entrada":
+        tipo = r[1]
+        valor = parse_valor(r[3])
+
+        if tipo == "Entrada":
             entradas += valor
         else:
             saidas += valor
@@ -220,22 +222,26 @@ async def mes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update):
         return
 
-    registros = sheet.get_all_records()
+    registros = sheet.get_all_values()
 
     mes_atual = datetime.now().strftime("%m/%Y")
 
     entradas = 0
     saidas = 0
 
-    for r in registros:
+    for r in registros[1:]:
 
-        data = r["Data"]
+        if len(r) < 4:
+            continue
+
+        data = r[0]
 
         if mes_atual in data:
 
-            valor = obter_valor_numerico(r)
+            tipo = r[1]
+            valor = parse_valor(r[3])
 
-            if r["Tipo"] == "Entrada":
+            if tipo == "Entrada":
                 entradas += valor
             else:
                 saidas += valor
@@ -257,16 +263,21 @@ async def categorias(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update):
         return
 
-    registros = sheet.get_all_records()
+    registros = sheet.get_all_values()
 
     categorias_total = {}
 
-    for r in registros:
+    for r in registros[1:]:
 
-        if r["Tipo"] == "Saída":
+        if len(r) < 4:
+            continue
 
-            categoria = r["Categoria"]
-            valor = obter_valor_numerico(r)
+        tipo = r[1]
+
+        if tipo == "Saída":
+
+            categoria = r[2]
+            valor = parse_valor(r[3])
 
             if categoria not in categorias_total:
                 categorias_total[categoria] = 0
@@ -285,19 +296,25 @@ async def hoje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update):
         return
 
-    registros = sheet.get_all_records()
+    registros = sheet.get_all_values()
 
     hoje = datetime.now().strftime("%d/%m/%Y")
 
     total = 0
     mensagem = "Gastos de hoje\n\n"
 
-    for r in registros:
+    for r in registros[1:]:
 
-        if r["Data"] == hoje and r["Tipo"] == "Saída":
+        if len(r) < 5:
+            continue
 
-            valor = obter_valor_numerico(r)
-            descricao = r["Descrição"]
+        data = r[0]
+        tipo = r[1]
+
+        if data == hoje and tipo == "Saída":
+
+            valor = parse_valor(r[3])
+            descricao = r[4]
 
             total += valor
 
@@ -312,16 +329,21 @@ async def grafico(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update):
         return
 
-    registros = sheet.get_all_records()
+    registros = sheet.get_all_values()
 
     categorias_total = {}
 
-    for r in registros:
+    for r in registros[1:]:
 
-        if r["Tipo"] == "Saída":
+        if len(r) < 4:
+            continue
 
-            categoria = r["Categoria"]
-            valor = obter_valor_numerico(r)
+        tipo = r[1]
+
+        if tipo == "Saída":
+
+            categoria = r[2]
+            valor = parse_valor(r[3])
 
             if categoria not in categorias_total:
                 categorias_total[categoria] = 0
@@ -351,20 +373,24 @@ async def mesgrafico(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update):
         return
 
-    registros = sheet.get_all_records()
+    registros = sheet.get_all_values()
 
     mes_atual = datetime.now().strftime("%m/%Y")
 
     categorias_total = {}
 
-    for r in registros:
+    for r in registros[1:]:
 
-        data = r["Data"]
+        if len(r) < 4:
+            continue
 
-        if mes_atual in data and r["Tipo"] == "Saída":
+        data = r[0]
+        tipo = r[1]
 
-            categoria = r["Categoria"]
-            valor = obter_valor_numerico(r)
+        if mes_atual in data and tipo == "Saída":
+
+            categoria = r[2]
+            valor = parse_valor(r[3])
 
             if categoria not in categorias_total:
                 categorias_total[categoria] = 0
