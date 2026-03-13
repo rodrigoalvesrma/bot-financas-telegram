@@ -20,6 +20,10 @@ from oauth2client.service_account import ServiceAccountCredentials
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 from datetime import datetime
+def limpar_texto(texto):
+    texto = texto.lower()
+    texto = re.sub(r'[^\w\s]', '', texto)
+    return texto
 USUARIO_AUTORIZADO = 1550267050
 
 # ----------------------------
@@ -48,32 +52,55 @@ sheet = client.open("Controle Financeiro").sheet1
 # ----------------------------
 
 mapa_categorias = {
-    "almoço": "Alimentação",
-    "jantar": "Alimentação",
-    "lanche": "Alimentação",
-    "restaurante": "Alimentação",
+    mapa_categorias = {
 
-    "gasolina": "Transporte",
-    "uber": "Transporte",
-    "combustivel": "Transporte",
+    "Alimentação": [
+    "restaurante","pizza","hamburguer","lanche","lanchonete","padaria","mercado",
+    "supermercado","ifood","delivery","açaí","cafeteria","café","bar","bebida",
+    "refeição","almoço","jantar","marmita","sorvete","burger","pizzaria"
+],
 
-    "mercado": "Casa",
-    "supermercado": "Casa",
+    "Transporte": [
+    "uber","99","combustivel","gasolina","etanol","diesel","posto","estacionamento",
+    "pedagio","taxi","onibus","metro","passagem","viagem","blablacar"
+],
 
-    "farmacia": "Saúde",
-    "remedio": "Saúde",
+    "Moradia": [
+    "aluguel","condominio","energia","luz","agua","internet","wifi",
+    "manutencao","reforma","material","tinta","ferramenta"
+],
 
-    "cinema": "Lazer",
-    "bar": "Lazer",
+    "Saúde": [
+    "farmacia","remedio","consulta","medico","dentista","exame",
+    "hospital","clinica","laboratorio","vitamina"
+],
+
+    "Lazer": [
+    "cinema","netflix","spotify","bar","balada","show","viagem",
+    "hotel","passeio","parque","evento"
+],
+
+    "Compras": [
+    "amazon","mercadolivre","shoppee","shein","compra","loja",
+    "shopping","roupa","tenis","camisa","presente"
+],
+
+    "Educação": [
+    "curso","livro","faculdade","mensalidade","aula","treinamento",
+    "workshop","certificacao"
+]
+
 }
 
 def detectar_categoria(texto):
 
-    texto = texto.lower()
+    texto = limpar_texto(texto)
+    palavras_texto = texto.split()
 
-    for palavra, categoria in mapa_categorias.items():
-        if palavra in texto:
-            return categoria
+    for categoria, palavras in mapa_categorias.items():
+        for palavra in palavras:
+            if palavra in palavras_texto or palavra in texto:
+                return categoria
 
     return "Outros"
 
