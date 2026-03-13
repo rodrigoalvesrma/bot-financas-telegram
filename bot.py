@@ -127,6 +127,19 @@ async def registrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tipo = "Entrada"
         valor = valor.replace("+", "")
 
+    try:
+        # converte vírgula para ponto
+        valor = valor.replace(",", ".")
+
+        # transforma em número
+        valor = float(valor)
+
+    except:
+        await update.message.reply_text(
+            "Formato inválido.\nExemplo:\n50 mercado\n+120 salario"
+        )
+        return
+
     data = datetime.now().strftime("%d/%m/%Y")
 
     categoria = detectar_categoria(descricao)
