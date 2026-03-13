@@ -144,10 +144,11 @@ async def registrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     categoria = detectar_categoria(descricao)
 
+    # envia o valor como número puro para a planilha
     sheet.append_row(
-    [data, tipo, categoria, float(valor), descricao],
-    value_input_option="USER_ENTERED"
-)
+        [data, tipo, categoria, valor, descricao],
+        value_input_option="RAW"
+    )
 
     await update.message.reply_text("Registrado!")
 
