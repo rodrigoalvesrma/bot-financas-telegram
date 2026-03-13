@@ -144,7 +144,10 @@ async def registrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     categoria = detectar_categoria(descricao)
 
-    sheet.append_row([data, tipo, categoria, valor, descricao])
+    sheet.append_row(
+    [data, tipo, categoria, float(valor), descricao],
+    value_input_option="USER_ENTERED"
+)
 
     await update.message.reply_text("Registrado!")
 
