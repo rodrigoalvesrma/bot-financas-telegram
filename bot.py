@@ -52,17 +52,17 @@ sheet = client.open("Controle Financeiro").sheet1
 # ----------------------------
 
 mapa_categorias = {
-    mapa_categorias = {
 
     "Alimentação": [
     "restaurante","pizza","hamburguer","lanche","lanchonete","padaria","mercado",
     "supermercado","ifood","delivery","açaí","cafeteria","café","bar","bebida",
-    "refeição","almoço","jantar","marmita","sorvete","burger","pizzaria"
+    "refeição","almoço","jantar","marmita","sorvete","burger","pizzaria","suco",
+    "energetico"
 ],
 
     "Transporte": [
     "uber","99","combustivel","gasolina","etanol","diesel","posto","estacionamento",
-    "pedagio","taxi","onibus","metro","passagem","viagem","blablacar"
+    "pedagio","taxi","onibus","metro","passagem","viagem","blablacar","trips"
 ],
 
     "Moradia": [
@@ -77,7 +77,7 @@ mapa_categorias = {
 
     "Lazer": [
     "cinema","netflix","spotify","bar","balada","show","viagem",
-    "hotel","passeio","parque","evento"
+    "hotel","passeio","parque","evento","sorveteria"
 ],
 
     "Compras": [
@@ -87,7 +87,7 @@ mapa_categorias = {
 
     "Educação": [
     "curso","livro","faculdade","mensalidade","aula","treinamento",
-    "workshop","certificacao"
+    "workshop","certificacao","pos"
 ]
 
 }
