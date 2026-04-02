@@ -68,7 +68,7 @@ mapa_categorias = {
 
     "Moradia": [
     "aluguel","condominio","energia","luz","agua","internet","wifi",
-    "manutencao","reforma","material","tinta","ferramenta"
+    "manutencao","reforma","material","tinta","ferramenta","telefone"
 ],
 
     "Saúde": [
@@ -83,7 +83,7 @@ mapa_categorias = {
 
     "Compras": [
     "amazon","mercadolivre","shoppee","shein","compra","loja",
-    "shopping","roupa","tenis","camisa","presente"
+    "shopping","roupa","tenis","camisa","presente","roupas"
 ],
 
     "Educação": [
@@ -133,6 +133,43 @@ def parse_valor(valor_bruto):
         return float(texto)
     except:
         return 0.0
+
+
+def mes_ano_anterior():
+
+    agora = datetime.now()
+    mes = agora.month - 1
+    ano = agora.year
+
+    if mes == 0:
+        mes = 12
+        ano -= 1
+
+    return f"{mes:02d}/{ano}"
+
+
+def resumo_mes_por_periodo(registros, periodo_mes_ano):
+
+    entradas = 0.0
+    saidas = 0.0
+
+    for r in registros[1:]:
+
+        if len(r) < 4:
+            continue
+
+        data = r[0]
+        tipo = r[1]
+        valor = parse_valor(r[3])
+
+        if periodo_mes_ano in data:
+            if tipo == "Entrada":
+                entradas += valor
+            else:
+                saidas += valor
+
+    saldo = entradas - saidas
+    return entradas, saidas, saldo
 
 # ----------------------------
 # FUNÇÃO PRINCIPAL
@@ -226,28 +263,7 @@ async def mes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     registros = sheet.get_all_values()
 
     mes_atual = datetime.now().strftime("%m/%Y")
-
-    entradas = 0
-    saidas = 0
-
-    for r in registros[1:]:
-
-        if len(r) < 4:
-            continue
-
-        data = r[0]
-
-        if mes_atual in data:
-
-            tipo = r[1]
-            valor = parse_valor(r[3])
-
-            if tipo == "Entrada":
-                entradas += valor
-            else:
-                saidas += valor
-
-    saldo = entradas - saidas
+    entradas, saidas, saldo = resumo_mes_por_periodo(registros, mes_atual)
 
     mensagem = f"""
 Resumo do mês
@@ -255,6 +271,74 @@ Resumo do mês
 Entradas: R$ {entradas:.2f}
 Saídas: R$ {saidas:.2f}
 Saldo: R$ {saldo:.2f}
+"""
+
+    await update.message.reply_text(mensagem)
+
+
+async def mesanterior(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not autorizado(update):
+        return
+
+    registros = sheet.get_all_values()
+
+    periodo = mes_ano_anterior()
+    entradas, saidas, saldo = resumo_mes_por_periodo(registros, periodo)
+
+    mensagem = f"""
+Resumo do mês anterior ({periodo})
+
+Entradas: R$ {entradas:.2f}
+Saídas: R$ {saidas:.2f}
+Saldo: R$ {saldo:.2f}
+"""
+
+    await update.message.reply_text(mensagem)
+
+
+async def saldoanterior(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not autorizado(update):
+        return
+
+    registros = sheet.get_all_values()
+
+    periodo = mes_ano_anterior()
+    _, _, saldo = resumo_mes_por_periodo(registros, periodo)
+
+    await update.message.reply_text(f"Saldo do mês anterior ({periodo}): R$ {saldo:.2f}")
+
+
+async def compararmes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not autorizado(update):
+        return
+
+    registros = sheet.get_all_values()
+
+    periodo_atual = datetime.now().strftime("%m/%Y")
+    periodo_anterior = mes_ano_anterior()
+
+    ent_atual, sai_atual, sal_atual = resumo_mes_por_periodo(registros, periodo_atual)
+    ent_ant, sai_ant, sal_ant = resumo_mes_por_periodo(registros, periodo_anterior)
+
+    variacao = sal_atual - sal_ant
+
+    mensagem = f"""
+Comparativo de meses
+
+Mês atual ({periodo_atual})
+Entradas: R$ {ent_atual:.2f}
+Saídas: R$ {sai_atual:.2f}
+Saldo: R$ {sal_atual:.2f}
+
+Mês anterior ({periodo_anterior})
+Entradas: R$ {ent_ant:.2f}
+Saídas: R$ {sai_ant:.2f}
+Saldo: R$ {sal_ant:.2f}
+
+Variação de saldo (atual - anterior): R$ {variacao:.2f}
 """
 
     await update.message.reply_text(mensagem)
@@ -475,6 +559,9 @@ TOKEN = "8571302338:AAELRp-vYSTjXMrem22xZqIn9Xfo5X9o9Pk"
 app = ApplicationBuilder().token(TOKEN).build()
 app.add_handler(CommandHandler("saldo", saldo))
 app.add_handler(CommandHandler("mes", mes))
+app.add_handler(CommandHandler("mesanterior", mesanterior))
+app.add_handler(CommandHandler("saldoanterior", saldoanterior))
+app.add_handler(CommandHandler("compararmes", compararmes))
 app.add_handler(CommandHandler("categorias", categorias))
 app.add_handler(CommandHandler("hoje", hoje))
 app.add_handler(CommandHandler("grafico", grafico))
