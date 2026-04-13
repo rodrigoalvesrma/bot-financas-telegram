@@ -106,6 +106,22 @@ def detectar_categoria(texto):
     return "Outros"
 
 
+def eh_entrada_por_descricao(descricao):
+
+    texto = limpar_texto(descricao)
+    palavras_entrada = [
+        "salario", "pagamento", "recebimento", "bonus", "bonificacao",
+        "comissao", "freela", "freelance", "rendimento", "pixrecebido",
+        "transferenciarecebida", "deposito"
+    ]
+
+    for palavra in palavras_entrada:
+        if palavra in texto:
+            return True
+
+    return False
+
+
 def parse_valor(valor_bruto):
 
     """
@@ -171,6 +187,29 @@ def resumo_mes_por_periodo(registros, periodo_mes_ano):
     saldo = entradas - saidas
     return entradas, saidas, saldo
 
+
+def gastos_por_descricao_no_periodo(registros, periodo_mes_ano):
+
+    gastos = {}
+
+    for r in registros[1:]:
+
+        if len(r) < 5:
+            continue
+
+        data = r[0]
+        tipo = r[1]
+        valor = parse_valor(r[3])
+        descricao = r[4].strip() if r[4] else "Sem descrição"
+
+        if periodo_mes_ano in data and tipo == "Saída":
+            if descricao not in gastos:
+                gastos[descricao] = 0.0
+            gastos[descricao] += valor
+
+    # ordena do maior gasto para o menor
+    return dict(sorted(gastos.items(), key=lambda item: item[1], reverse=True))
+
 # ----------------------------
 # FUNÇÃO PRINCIPAL
 # ----------------------------
@@ -192,6 +231,8 @@ async def registrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if valor.startswith("+"):
         tipo = "Entrada"
         valor = valor.replace("+", "")
+    elif eh_entrada_por_descricao(descricao):
+        tipo = "Entrada"
 
     try:
 
@@ -226,6 +267,7 @@ async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     registros = sheet.get_all_values()
 
+    mes_atual = datetime.now().strftime("%m/%Y")
     entradas = 0
     saidas = 0
 
@@ -235,13 +277,16 @@ async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(r) < 4:
             continue
 
-        tipo = r[1]
-        valor = parse_valor(r[3])
+        data = r[0]
 
-        if tipo == "Entrada":
-            entradas += valor
-        else:
-            saidas += valor
+        if mes_atual in data:
+            tipo = r[1]
+            valor = parse_valor(r[3])
+
+            if tipo == "Entrada":
+                entradas += valor
+            else:
+                saidas += valor
 
     saldo = entradas - saidas
 
@@ -343,6 +388,48 @@ Variação de saldo (atual - anterior): R$ {variacao:.2f}
 
     await update.message.reply_text(mensagem)
 
+
+async def subcategorias(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not autorizado(update):
+        return
+
+    registros = sheet.get_all_values()
+    periodo = datetime.now().strftime("%m/%Y")
+    gastos = gastos_por_descricao_no_periodo(registros, periodo)
+
+    if not gastos:
+        await update.message.reply_text(f"Nenhum gasto por subcategoria encontrado em {periodo}.")
+        return
+
+    mensagem = f"Gastos por subcategoria ({periodo})\n\n"
+
+    for descricao, valor in gastos.items():
+        mensagem += f"{descricao}: R$ {valor:.2f}\n"
+
+    await update.message.reply_text(mensagem)
+
+
+async def subcategoriasanterior(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not autorizado(update):
+        return
+
+    registros = sheet.get_all_values()
+    periodo = mes_ano_anterior()
+    gastos = gastos_por_descricao_no_periodo(registros, periodo)
+
+    if not gastos:
+        await update.message.reply_text(f"Nenhum gasto por subcategoria encontrado em {periodo}.")
+        return
+
+    mensagem = f"Gastos por subcategoria ({periodo})\n\n"
+
+    for descricao, valor in gastos.items():
+        mensagem += f"{descricao}: R$ {valor:.2f}\n"
+
+    await update.message.reply_text(mensagem)
+
 async def categorias(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not autorizado(update):
@@ -350,6 +437,7 @@ async def categorias(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     registros = sheet.get_all_values()
 
+    mes_atual = datetime.now().strftime("%m/%Y")
     categorias_total = {}
 
     for r in registros[1:]:
@@ -357,9 +445,10 @@ async def categorias(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(r) < 4:
             continue
 
+        data = r[0]
         tipo = r[1]
 
-        if tipo == "Saída":
+        if mes_atual in data and tipo == "Saída":
 
             categoria = r[2]
             valor = parse_valor(r[3])
@@ -563,6 +652,8 @@ app.add_handler(CommandHandler("mesanterior", mesanterior))
 app.add_handler(CommandHandler("saldoanterior", saldoanterior))
 app.add_handler(CommandHandler("compararmes", compararmes))
 app.add_handler(CommandHandler("categorias", categorias))
+app.add_handler(CommandHandler("subcategorias", subcategorias))
+app.add_handler(CommandHandler("subcategoriasanterior", subcategoriasanterior))
 app.add_handler(CommandHandler("hoje", hoje))
 app.add_handler(CommandHandler("grafico", grafico))
 app.add_handler(CommandHandler("mesgrafico", mesgrafico))
