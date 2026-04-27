@@ -260,87 +260,60 @@ async def registrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("Registrado!")
 
-async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def saldo(update, context):
 
-    if not autorizado(update):
-        return
+    registros = sheet.get_all_records()
 
-    registros = sheet.get_all_values()
-
-    mes_atual = datetime.now().strftime("%m/%Y")
     entradas = 0
     saidas = 0
 
-    # primeira linha é o cabeçalho
-    for r in registros[1:]:
+    for linha in registros:
+        valor = float(linha["Valor"])
 
-        if len(r) < 4:
-            continue
+        if linha["Tipo"] == "Entrada":
+            entradas += valor
+        else:
+            saidas += valor
 
-        data = r[0]
+    saldo_total = entradas - saidas
+
+    await update.message.reply_text(
+        f"Saldo atual:\n\n"
+        f"Entradas: R$ {entradas:.2f}\n"
+        f"Saídas: R$ {saidas:.2f}\n"
+        f"Saldo: R$ {saldo_total:.2f}"
+    )
+
+from datetime import datetime
+
+async def mes(update, context):
+
+    registros = sheet.get_all_records()
+
+    mes_atual = datetime.now().strftime("%m/%Y")
+
+    entradas = 0
+    saidas = 0
+
+    for linha in registros:
+        data = linha["Data"]
+        valor = float(linha["Valor"])
 
         if mes_atual in data:
-            tipo = r[1]
-            valor = parse_valor(r[3])
 
-            if tipo == "Entrada":
+            if linha["Tipo"] == "Entrada":
                 entradas += valor
             else:
                 saidas += valor
 
-    saldo = entradas - saidas
+    saldo_mes = entradas - saidas
 
-    mensagem = f"""
-Resumo financeiro
-
-Entradas: R$ {entradas:.2f}
-Saídas: R$ {saidas:.2f}
-Saldo: R$ {saldo:.2f}
-"""
-
-    await update.message.reply_text(mensagem)
-
-async def mes(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    if not autorizado(update):
-        return
-
-    registros = sheet.get_all_values()
-
-    mes_atual = datetime.now().strftime("%m/%Y")
-    entradas, saidas, saldo = resumo_mes_por_periodo(registros, mes_atual)
-
-    mensagem = f"""
-Resumo do mês
-
-Entradas: R$ {entradas:.2f}
-Saídas: R$ {saidas:.2f}
-Saldo: R$ {saldo:.2f}
-"""
-
-    await update.message.reply_text(mensagem)
-
-
-async def mesanterior(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    if not autorizado(update):
-        return
-
-    registros = sheet.get_all_values()
-
-    periodo = mes_ano_anterior()
-    entradas, saidas, saldo = resumo_mes_por_periodo(registros, periodo)
-
-    mensagem = f"""
-Resumo do mês anterior ({periodo})
-
-Entradas: R$ {entradas:.2f}
-Saídas: R$ {saidas:.2f}
-Saldo: R$ {saldo:.2f}
-"""
-
-    await update.message.reply_text(mensagem)
-
+    await update.message.reply_text(
+        f"Resumo do mês:\n\n"
+        f"Entradas: R$ {entradas:.2f}\n"
+        f"Saídas: R$ {saidas:.2f}\n"
+        f"Saldo: R$ {saldo_mes:.2f}"
+    )
 
 async def saldoanterior(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
