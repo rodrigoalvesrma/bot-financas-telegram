@@ -588,6 +588,25 @@ async def ultimos(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(mensagem)
 
+async def mesanterior(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not autorizado(update):
+        return
+
+    registros = sheet.get_all_values()
+
+    periodo = mes_ano_anterior()
+
+    entradas, saidas, saldo = resumo_mes_por_periodo(registros, periodo)
+
+    await update.message.reply_text(
+        f"Resumo do mês anterior ({periodo}):\n\n"
+        f"Entradas: R$ {entradas:.2f}\n"
+        f"Saídas: R$ {saidas:.2f}\n"
+        f"Saldo: R$ {saldo:.2f}"
+    )
+
+
 async def apagar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not context.args:
