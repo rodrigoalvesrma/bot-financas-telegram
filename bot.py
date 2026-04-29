@@ -260,16 +260,17 @@ async def registrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("Registrado!")
 
-async def saldo(update, context):
+async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not autorizado(update):
+        return
 
     registros = sheet.get_all_records()
 
-    entradas = 0
-    saidas = 0
+    entradas = 0.0
+    saidas = 0.0
 
     for linha in registros:
-        valor = float(linha["Valor"])
-
+        valor = parse_valor(linha["Valor"])   # <-- correção aqui
         if linha["Tipo"] == "Entrada":
             entradas += valor
         else:
@@ -286,21 +287,21 @@ async def saldo(update, context):
 
 from datetime import datetime
 
-async def mes(update, context):
+async def mes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not autorizado(update):
+        return
 
     registros = sheet.get_all_records()
-
     mes_atual = datetime.now().strftime("%m/%Y")
 
-    entradas = 0
-    saidas = 0
+    entradas = 0.0
+    saidas = 0.0
 
     for linha in registros:
         data = linha["Data"]
-        valor = float(linha["Valor"])
+        valor = parse_valor(linha["Valor"])   # <-- correção aqui
 
         if mes_atual in data:
-
             if linha["Tipo"] == "Entrada":
                 entradas += valor
             else:
@@ -638,12 +639,3 @@ app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, registrar))
 print("Bot rodando...")
 
 app.run_polling()
-
-while True:
-    try:
-        asyncio.run(main())
-    except Exception as e:
-        print(f"Erro detectado: {e}")
-        print("Reiniciando bot em 5 segundos...")
-        import time
-        time.sleep(5)
