@@ -124,12 +124,6 @@ def eh_entrada_por_descricao(descricao):
 
 def parse_valor(valor_bruto):
 
-    """
-    Converte o valor bruto (string, int, float) em float de forma segura.
-    Aceita formatos como '39,90', 'R$ 39,90', números já numéricos
-    e células vazias. Se não for possível converter, retorna 0.0.
-    """
-
     if isinstance(valor_bruto, (int, float)):
         return float(valor_bruto)
 
@@ -142,8 +136,14 @@ def parse_valor(valor_bruto):
         return 0.0
 
     texto = texto.replace("R$", "").replace(" ", "")
-    # remove separador de milhar e converte vírgula para ponto
-    texto = texto.replace(".", "").replace(",", ".")
+
+    # CASO tenha vírgula → padrão BR
+    if "," in texto:
+        texto = texto.replace(".", "")   # remove milhar
+        texto = texto.replace(",", ".")  # decimal
+
+    # CASO não tenha vírgula → já está correto (padrão EUA)
+    # NÃO mexe no ponto
 
     try:
         return float(texto)
