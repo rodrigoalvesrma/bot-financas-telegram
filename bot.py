@@ -219,31 +219,47 @@ async def registrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update):
         return
 
-    texto = update.message.text
+    texto = update.message.text.lower()
 
-    partes = texto.split(" ", 1)
+    partes = texto.split()
+
+    if len(partes) < 2:
+        await update.message.reply_text("Formato inválido.\nExemplo:\n50 mercado debito")
+        return
 
     valor = partes[0]
-    descricao = partes[1] if len(partes) > 1 else ""
+    palavras = partes[1:]
 
     tipo = "Saída"
 
     if valor.startswith("+"):
         tipo = "Entrada"
         valor = valor.replace("+", "")
-    elif eh_entrada_por_descricao(descricao):
+
+    # Detectar forma de pagamento
+    forma = "Outro"
+
+    if "credito" in palavras:
+        forma = "Crédito"
+        palavras.remove("credito")
+
+    elif "debito" in palavras:
+        forma = "Débito"
+        palavras.remove("debito")
+
+    descricao = " ".join(palavras)
+
+    if eh_entrada_por_descricao(descricao):
         tipo = "Entrada"
 
     try:
-
-        # transforma em número
         valor = valor.replace(",", ".")
         valor = float(valor)
         valor = round(valor, 2)
 
     except:
         await update.message.reply_text(
-            "Formato inválido.\nExemplo:\n50 mercado\n+120 salario"
+            "Formato inválido.\nExemplo:\n50 mercado debito\n+100 salario"
         )
         return
 
@@ -251,14 +267,12 @@ async def registrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     categoria = detectar_categoria(descricao)
 
-    # envia o valor como número (float) para o Sheets
-    # isso garante que o dado seja tratado como numérico independentemente da localidade
     sheet.append_row(
-        [data, tipo, categoria, float(valor), descricao],
-        value_input_option="RAW"
+        [data, tipo, categoria, float(valor), descricao, forma],
+        value_input_option="USER_ENTERED"
     )
 
-    await update.message.reply_text("Registrado!")
+    await update.message.reply_text(f"Registrado ({forma})!")
 
 async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update):
@@ -606,6 +620,35 @@ async def mesanterior(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Saldo: R$ {saldo:.2f}"
     )
 
+async def cartao(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not autorizado(update):
+        return
+
+    registros = sheet.get_all_values()
+
+    agora = datetime.now()
+    mes_atual = agora.strftime("%m/%Y")
+
+    total_credito = 0.0
+
+    for r in registros[1:]:
+
+        if len(r) < 6:
+            continue
+
+        data = r[0]
+        tipo = r[1]
+        valor = parse_valor(r[3])
+        forma = r[5].lower() if r[5] else ""
+
+        # Garante que é do mês atual + saída + crédito
+        if data.endswith(mes_atual) and tipo == "Saída" and "credito" in forma:
+            total_credito += valor
+
+    await update.message.reply_text(
+        f"Gastos no crédito ({mes_atual}):\n\nR$ {total_credito:.2f}"
+    )
 
 async def apagar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
