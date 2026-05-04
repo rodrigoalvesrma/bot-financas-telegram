@@ -56,19 +56,19 @@ mapa_categorias = {
 
     "Alimentação": [
     "restaurante","pizza","hamburguer","lanche","lanchonete","padaria","mercado",
-    "supermercado","ifood","delivery","açaí","cafeteria","café","bar","bebida",
+    "supermercado","ifood","delivery","açaí","cafeteria","café","bebida",
     "refeição","almoço","jantar","marmita","sorvete","burger","pizzaria","suco",
-    "energetico"
+    "energetico","energético","sanduíche",
 ],
 
     "Transporte": [
     "uber","99","combustivel","gasolina","etanol","diesel","posto","estacionamento",
-    "pedagio","taxi","onibus","metro","passagem","viagem","blablacar","trips"
+    "pedagio","taxi","onibus","metro","passagem","viagem","blablacar","trips","Abastecimento"
 ],
 
     "Moradia": [
     "aluguel","condominio","energia","luz","agua","internet","wifi",
-    "manutencao","reforma","material","tinta","ferramenta","telefone"
+    "manutencao","reforma","material","tinta","ferramenta","telefone","Casa"
 ],
 
     "Saúde": [
@@ -78,7 +78,7 @@ mapa_categorias = {
 
     "Lazer": [
     "cinema","netflix","spotify","bar","balada","show","viagem",
-    "hotel","passeio","parque","evento","sorveteria"
+    "hotel","passeio","parque","evento","sorveteria","Bar"
 ],
 
     "Compras": [
