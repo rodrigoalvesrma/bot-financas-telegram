@@ -341,9 +341,9 @@ async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update):
         return
 
-    registros = sheet.get_all_records()
+    registros = sheet.get_all_values()
 
-    entradas, saidas, saldo_total = calcular_entradas_saidas(registros)
+    entradas, saidas, saldo_total = calcular_entradas_saidas(registros[1:])
 
     await update.message.reply_text(
         f"Saldo atual:\n\n"
@@ -358,10 +358,10 @@ async def mes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update):
         return
 
-    registros = sheet.get_all_records()
+    registros = sheet.get_all_values()
     mes_atual = datetime.now().strftime("%m/%Y")
 
-    entradas, saidas, saldo_mes = calcular_entradas_saidas(registros, mes_atual)
+    entradas, saidas, saldo_mes = calcular_entradas_saidas(registros[1:], mes_atual)
 
     await update.message.reply_text(
         f"Resumo do mês:\n\n"
