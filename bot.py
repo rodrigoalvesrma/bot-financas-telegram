@@ -2,6 +2,7 @@ from flask import Flask
 import threading
 import os
 import re
+import unicodedata
 
 app = Flask(__name__)
 
@@ -136,11 +137,16 @@ def parse_valor(valor_bruto):
         return 0.0
 
     texto = texto.replace("R$", "").replace(" ", "")
+    texto = re.sub(r"[^0-9,.\-]", "", texto)
 
     # CASO tenha vírgula → padrão BR
     if "," in texto:
         texto = texto.replace(".", "")   # remove milhar
         texto = texto.replace(",", ".")  # decimal
+    elif "." in texto:
+        partes = texto.split(".")
+        if len(partes[-1]) == 3 and all(len(parte) <= 3 for parte in partes):
+            texto = texto.replace(".", "")
 
     # CASO não tenha vírgula → já está correto (padrão EUA)
     # NÃO mexe no ponto
@@ -149,6 +155,83 @@ def parse_valor(valor_bruto):
         return float(texto)
     except:
         return 0.0
+
+
+def normalizar_texto_calculo(texto):
+
+    texto = "" if texto is None else str(texto).strip().lower()
+    texto = unicodedata.normalize("NFKD", texto)
+    texto = "".join(c for c in texto if not unicodedata.combining(c))
+    texto = re.sub(r"[^a-z0-9]", "", texto)
+
+    return texto
+
+
+def tipo_lancamento(tipo_bruto):
+
+    tipo = normalizar_texto_calculo(tipo_bruto)
+
+    if tipo in ("entrada", "receita"):
+        return "Entrada"
+
+    if tipo in ("saida", "despesa", "gasto"):
+        return "Saida"
+
+    return None
+
+
+def valor_lancamento(valor_bruto):
+
+    return abs(parse_valor(valor_bruto))
+
+
+def campo_registro(registro, nome, indice):
+
+    if isinstance(registro, dict):
+        return registro.get(nome, "")
+
+    if len(registro) > indice:
+        return registro[indice]
+
+    return ""
+
+
+def data_no_periodo(data_bruta, periodo_mes_ano):
+
+    data = str(data_bruta).strip()
+
+    if not periodo_mes_ano:
+        return True
+
+    try:
+        return datetime.strptime(data, "%d/%m/%Y").strftime("%m/%Y") == periodo_mes_ano
+    except ValueError:
+        return data.endswith(periodo_mes_ano)
+
+
+def calcular_entradas_saidas(registros, periodo_mes_ano=None):
+
+    entradas = 0.0
+    saidas = 0.0
+
+    for registro in registros:
+
+        data = campo_registro(registro, "Data", 0)
+
+        if not data_no_periodo(data, periodo_mes_ano):
+            continue
+
+        tipo = tipo_lancamento(campo_registro(registro, "Tipo", 1))
+        valor = valor_lancamento(campo_registro(registro, "Valor", 3))
+
+        if tipo == "Entrada":
+            entradas += valor
+        elif tipo == "Saida":
+            saidas += valor
+
+    saldo = entradas - saidas
+
+    return entradas, saidas, saldo
 
 
 def mes_ano_anterior():
@@ -165,27 +248,7 @@ def mes_ano_anterior():
 
 
 def resumo_mes_por_periodo(registros, periodo_mes_ano):
-
-    entradas = 0.0
-    saidas = 0.0
-
-    for r in registros[1:]:
-
-        if len(r) < 4:
-            continue
-
-        data = r[0]
-        tipo = r[1]
-        valor = parse_valor(r[3])
-
-        if periodo_mes_ano in data:
-            if tipo == "Entrada":
-                entradas += valor
-            else:
-                saidas += valor
-
-    saldo = entradas - saidas
-    return entradas, saidas, saldo
+    return calcular_entradas_saidas(registros[1:], periodo_mes_ano)
 
 
 def gastos_por_descricao_no_periodo(registros, periodo_mes_ano):
@@ -280,17 +343,7 @@ async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     registros = sheet.get_all_records()
 
-    entradas = 0.0
-    saidas = 0.0
-
-    for linha in registros:
-        valor = parse_valor(linha["Valor"])   # <-- correção aqui
-        if linha["Tipo"] == "Entrada":
-            entradas += valor
-        else:
-            saidas += valor
-
-    saldo_total = entradas - saidas
+    entradas, saidas, saldo_total = calcular_entradas_saidas(registros)
 
     await update.message.reply_text(
         f"Saldo atual:\n\n"
@@ -308,20 +361,7 @@ async def mes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     registros = sheet.get_all_records()
     mes_atual = datetime.now().strftime("%m/%Y")
 
-    entradas = 0.0
-    saidas = 0.0
-
-    for linha in registros:
-        data = linha["Data"]
-        valor = parse_valor(linha["Valor"])   # <-- correção aqui
-
-        if mes_atual in data:
-            if linha["Tipo"] == "Entrada":
-                entradas += valor
-            else:
-                saidas += valor
-
-    saldo_mes = entradas - saidas
+    entradas, saidas, saldo_mes = calcular_entradas_saidas(registros, mes_atual)
 
     await update.message.reply_text(
         f"Resumo do mês:\n\n"
