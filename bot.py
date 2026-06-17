@@ -349,10 +349,17 @@ def tipo_lancamento(tipo_bruto):
     if tipo in ("entrada", "receita"):
         return "Entrada"
 
-    if tipo in ("saida", "despesa", "gasto"):
+    if tipo in ("saida", "sada", "saada", "despesa", "gasto"):
         return "Saida"
 
     return None
+
+
+def forma_e_credito(forma_bruta):
+
+    forma = normalizar_texto_calculo(forma_bruta)
+
+    return forma in ("credito", "crdito", "credit", "cc") or "credito" in forma
 
 
 def valor_lancamento(valor_bruto):
@@ -824,6 +831,7 @@ async def cartao(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mes_atual = agora.strftime("%m/%Y")
 
     total_credito = 0.0
+    quantidade = 0
 
     for r in registros[1:]:
 
@@ -831,16 +839,17 @@ async def cartao(update: Update, context: ContextTypes.DEFAULT_TYPE):
             continue
 
         data = r[0]
-        tipo = r[1]
-        valor = parse_valor(r[3])
-        forma = r[5].lower() if r[5] else ""
+        tipo = tipo_lancamento(r[1])
+        valor = valor_lancamento(r[3])
 
-        # Garante que é do mês atual + saída + crédito
-        if data.endswith(mes_atual) and tipo == "Saída" and "credito" in forma:
+        if data_no_periodo(data, mes_atual) and tipo == "Saida" and forma_e_credito(r[5]):
             total_credito += valor
+            quantidade += 1
 
     await update.message.reply_text(
-        f"Gastos no crédito ({mes_atual}):\n\nR$ {total_credito:.2f}"
+        f"Gastos no crédito ({mes_atual}):\n\n"
+        f"Total: R$ {total_credito:.2f}\n"
+        f"Lançamentos: {quantidade}"
     )
 
 async def apagar(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -887,6 +896,7 @@ app.add_handler(CommandHandler("hoje", hoje))
 app.add_handler(CommandHandler("grafico", grafico))
 app.add_handler(CommandHandler("mesgrafico", mesgrafico))
 app.add_handler(CommandHandler("ultimos", ultimos))
+app.add_handler(CommandHandler("cartao", cartao))
 app.add_handler(CommandHandler("apagar", apagar))
 
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, registrar))
