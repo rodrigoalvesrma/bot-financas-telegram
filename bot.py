@@ -23,8 +23,11 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 from datetime import datetime
 def limpar_texto(texto):
-    texto = texto.lower()
-    texto = re.sub(r'[^\w\s]', '', texto)
+    texto = "" if texto is None else str(texto).lower()
+    texto = unicodedata.normalize("NFKD", texto)
+    texto = "".join(c for c in texto if not unicodedata.combining(c))
+    texto = re.sub(r'[^\w\s]', ' ', texto)
+    texto = re.sub(r'\s+', ' ', texto).strip()
     return texto
 USUARIO_AUTORIZADO = 1550267050
 
@@ -56,41 +59,62 @@ sheet = client.open("Controle Financeiro").sheet1
 mapa_categorias = {
 
     "Alimentação": [
-    "restaurante","pizza","hamburguer","lanche","lanchonete","padaria","mercado",
-    "supermercado","ifood","delivery","açaí","cafeteria","café","bebida",
-    "refeição","almoço","jantar","marmita","sorvete","burger","pizzaria","suco",
-    "energetico","energético","sanduíche",
-],
+        "restaurante", "pizza", "hamburguer", "hamburger", "lanche", "lanchonete",
+        "padaria", "mercado", "supermercado", "hortifruti", "acougue", "ifood",
+        "delivery", "acai", "cafeteria", "cafe", "bebida", "refeicao", "almoco",
+        "jantar", "marmita", "sorvete", "burger", "pizzaria", "suco", "energetico",
+        "sanduiche", "pastel", "esfiha", "japones", "sushi", "churrasco"
+    ],
 
     "Transporte": [
-    "uber","99","combustivel","gasolina","etanol","diesel","posto","estacionamento",
-    "pedagio","taxi","onibus","metro","passagem","viagem","blablacar","trips","Abastecimento"
-],
+        "uber", "99", "combustivel", "gasolina", "etanol", "diesel", "posto",
+        "estacionamento", "pedagio", "taxi", "onibus", "metro", "passagem",
+        "blablacar", "trips", "abastecimento", "moto", "carro", "oficina",
+        "lavajato", "borracharia", "ipva", "licenciamento"
+    ],
 
     "Moradia": [
-    "aluguel","condominio","energia","luz","agua","internet","wifi",
-    "manutencao","reforma","material","tinta","ferramenta","telefone","Casa"
-],
+        "aluguel", "condominio", "energia", "luz", "agua", "internet", "wifi",
+        "manutencao", "reforma", "material", "tinta", "ferramenta", "casa",
+        "apartamento", "gas", "sabesp", "enel", "claro", "vivo", "tim"
+    ],
 
     "Saúde": [
-    "farmacia","remedio","consulta","medico","dentista","exame",
-    "hospital","clinica","laboratorio","vitamina"
-],
+        "farmacia", "remedio", "consulta", "medico", "dentista", "exame",
+        "hospital", "clinica", "laboratorio", "vitamina", "plano de saude",
+        "psicologo", "terapia", "academia", "suplemento"
+    ],
 
     "Lazer": [
-    "cinema","netflix","spotify","bar","balada","show","viagem",
-    "hotel","passeio","parque","evento","sorveteria","Bar"
-],
+        "cinema", "netflix", "spotify", "bar", "balada", "show", "viagem",
+        "hotel", "passeio", "parque", "evento", "sorveteria", "festa",
+        "ingresso", "jogo", "steam", "playstation", "xbox"
+    ],
 
     "Compras": [
-    "amazon","mercadolivre","shoppee","shein","compra","loja",
-    "shopping","roupa","tenis","camisa","presente","roupas"
-],
+        "amazon", "mercadolivre", "mercado livre", "shopee", "shoppee", "shein",
+        "compra", "loja", "shopping", "roupa", "tenis", "camisa", "presente",
+        "roupas", "eletronico", "celular", "moveis", "magalu", "americanas"
+    ],
 
     "Educação": [
-    "curso","livro","faculdade","mensalidade","aula","treinamento",
-    "workshop","certificacao","pos"
-]
+        "curso", "livro", "faculdade", "mensalidade", "aula", "treinamento",
+        "workshop", "certificacao", "pos", "escola", "material escolar"
+    ],
+
+    "Serviços": [
+        "assinatura", "icloud", "google", "microsoft", "canva", "chatgpt",
+        "openai", "dominio", "hospedagem", "app", "software", "sistema"
+    ],
+
+    "Impostos e Taxas": [
+        "imposto", "taxa", "tarifa", "multa", "juros", "boleto", "mei", "das",
+        "irpf", "inss", "fgts"
+    ],
+
+    "Pets": [
+        "pet", "racao", "veterinario", "banho", "tosa", "petshop"
+    ]
 
 }
 
@@ -98,22 +122,42 @@ def detectar_categoria(texto):
 
     texto = limpar_texto(texto)
     palavras_texto = texto.split()
+    conjunto_palavras = set(palavras_texto)
+    melhor_categoria = "Outros"
+    melhor_pontuacao = 0
 
     for categoria, palavras in mapa_categorias.items():
         for palavra in palavras:
-            if palavra in palavras_texto or palavra in texto:
-                return categoria
+            palavra_normalizada = limpar_texto(palavra)
+            palavras_chave = palavra_normalizada.split()
 
-    return "Outros"
+            if not palavra_normalizada:
+                continue
+
+            if len(palavras_chave) > 1 and palavra_normalizada in texto:
+                pontuacao = len(palavras_chave) + 1
+            elif palavra_normalizada in conjunto_palavras:
+                pontuacao = 2
+            elif len(palavra_normalizada) >= 4 and palavra_normalizada in texto:
+                pontuacao = 1
+            else:
+                pontuacao = 0
+
+            if pontuacao > melhor_pontuacao:
+                melhor_categoria = categoria
+                melhor_pontuacao = pontuacao
+
+    return melhor_categoria
 
 
 def eh_entrada_por_descricao(descricao):
 
     texto = limpar_texto(descricao)
     palavras_entrada = [
-        "salario", "pagamento", "recebimento", "bonus", "bonificacao",
-        "comissao", "freela", "freelance", "rendimento", "pixrecebido",
-        "transferenciarecebida", "deposito"
+        "salario", "recebimento", "recebi", "recebeu", "bonus",
+        "bonificacao", "comissao", "freela", "freelance", "rendimento",
+        "pix recebido", "transferencia recebida", "deposito", "entrada",
+        "reembolso", "estorno"
     ]
 
     for palavra in palavras_entrada:
@@ -121,6 +165,137 @@ def eh_entrada_por_descricao(descricao):
             return True
 
     return False
+
+
+FORMAS_PAGAMENTO = {
+    "Crédito": [
+        "cartao de credito", "cartao credito", "credito", "credit", "cc"
+    ],
+    "Débito": [
+        "cartao de debito", "cartao debito", "debito", "debit", "cd"
+    ],
+    "Pix": [
+        "pix"
+    ],
+    "Dinheiro": [
+        "dinheiro", "cash", "especie"
+    ],
+    "Boleto": [
+        "boleto"
+    ],
+    "Transferência": [
+        "transferencia", "ted", "doc"
+    ]
+}
+
+PALAVRAS_SAIDA = [
+    "paguei", "pago", "pagamento", "gastei", "gasto", "comprei", "compra",
+    "despesa", "saida", "debito", "debitar", "pagar"
+]
+
+PALAVRAS_IGNORADAS_DESCRICAO = {
+    "paguei", "pago", "pagamento", "gastei", "gasto", "comprei", "compra",
+    "recebi", "recebido", "recebimento", "entrada", "saida", "despesa",
+    "no", "na", "nos", "nas", "em", "de", "do", "da", "dos", "das",
+    "com", "via", "por", "para", "pra", "um", "uma", "o", "a"
+}
+
+
+def contem_palavra_ou_frase(texto, opcoes):
+
+    texto = limpar_texto(texto)
+    palavras = set(texto.split())
+
+    for opcao in opcoes:
+        opcao = limpar_texto(opcao)
+        if " " in opcao and opcao in texto:
+            return True
+        if opcao in palavras:
+            return True
+
+    return False
+
+
+def extrair_valor_da_mensagem(texto):
+
+    padrao = re.compile(
+        r"(?P<sinal>[+-])?\s*(?P<moeda>r\$)?\s*"
+        r"(?P<valor>\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)",
+        re.IGNORECASE
+    )
+    candidatos = list(padrao.finditer(texto))
+
+    if not candidatos:
+        return None, texto, None
+
+    escolhido = None
+
+    for candidato in candidatos:
+        if candidato.group("sinal") or candidato.group("moeda"):
+            escolhido = candidato
+            break
+
+    if escolhido is None and candidatos[0].start() == 0:
+        escolhido = candidatos[0]
+
+    if escolhido is None:
+        escolhido = candidatos[-1]
+
+    valor = parse_valor(escolhido.group(0))
+    texto_sem_valor = f"{texto[:escolhido.start()]} {texto[escolhido.end():]}"
+    sinal = escolhido.group("sinal")
+
+    return valor, texto_sem_valor, sinal
+
+
+def detectar_forma_pagamento(descricao):
+
+    descricao_limpa = limpar_texto(descricao)
+    forma_detectada = "Outro"
+
+    for forma, aliases in FORMAS_PAGAMENTO.items():
+        for alias in aliases:
+            alias_limpo = limpar_texto(alias)
+            padrao = r"\b" + re.escape(alias_limpo) + r"\b"
+
+            if re.search(padrao, descricao_limpa):
+                forma_detectada = forma
+                descricao_limpa = re.sub(padrao, " ", descricao_limpa)
+                descricao_limpa = re.sub(r"\s+", " ", descricao_limpa).strip()
+                return forma_detectada, descricao_limpa
+
+    return forma_detectada, descricao_limpa
+
+
+def detectar_tipo_mensagem(descricao, sinal):
+
+    if sinal == "+":
+        return "Entrada"
+
+    if sinal == "-":
+        return "Saída"
+
+    if eh_entrada_por_descricao(descricao):
+        return "Entrada"
+
+    if contem_palavra_ou_frase(descricao, PALAVRAS_SAIDA):
+        return "Saída"
+
+    return "Saída"
+
+
+def padronizar_descricao(descricao):
+
+    texto = limpar_texto(descricao)
+    palavras = [
+        palavra for palavra in texto.split()
+        if palavra not in PALAVRAS_IGNORADAS_DESCRICAO
+    ]
+
+    if not palavras:
+        return "Sem descrição"
+
+    return " ".join(palavras)
 
 
 def parse_valor(valor_bruto):
@@ -282,60 +457,38 @@ async def registrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update):
         return
 
-    texto = update.message.text.lower()
+    texto = update.message.text.strip()
 
-    partes = texto.split()
+    valor, descricao_bruta, sinal = extrair_valor_da_mensagem(texto)
 
-    if len(partes) < 2:
-        await update.message.reply_text("Formato inválido.\nExemplo:\n50 mercado debito")
-        return
-
-    valor = partes[0]
-    palavras = partes[1:]
-
-    tipo = "Saída"
-
-    if valor.startswith("+"):
-        tipo = "Entrada"
-        valor = valor.replace("+", "")
-
-    # Detectar forma de pagamento
-    forma = "Outro"
-
-    if "credito" in palavras:
-        forma = "Crédito"
-        palavras.remove("credito")
-
-    elif "debito" in palavras:
-        forma = "Débito"
-        palavras.remove("debito")
-
-    descricao = " ".join(palavras)
-
-    if eh_entrada_por_descricao(descricao):
-        tipo = "Entrada"
-
-    try:
-        valor = valor.replace(",", ".")
-        valor = float(valor)
-        valor = round(valor, 2)
-
-    except:
+    if valor is None or valor <= 0:
         await update.message.reply_text(
-            "Formato inválido.\nExemplo:\n50 mercado debito\n+100 salario"
+            "Formato inválido.\nExemplos:\n50 mercado debito\nmercado 50 no crédito\n+100 salario\nrecebi R$ 800 pix"
         )
         return
 
+    forma, descricao_sem_forma = detectar_forma_pagamento(descricao_bruta)
+    tipo = detectar_tipo_mensagem(descricao_sem_forma, sinal)
+    descricao = padronizar_descricao(descricao_sem_forma)
+    valor = round(abs(valor), 2)
+
     data = datetime.now().strftime("%d/%m/%Y")
 
-    categoria = detectar_categoria(descricao)
+    categoria = "Receitas" if tipo == "Entrada" else detectar_categoria(descricao)
 
     sheet.append_row(
         [data, tipo, categoria, float(valor), descricao, forma],
         value_input_option="USER_ENTERED"
     )
 
-    await update.message.reply_text(f"Registrado ({forma})!")
+    await update.message.reply_text(
+        f"Registrado!\n\n"
+        f"Tipo: {tipo}\n"
+        f"Categoria: {categoria}\n"
+        f"Descrição: {descricao}\n"
+        f"Forma: {forma}\n"
+        f"Valor: R$ {valor:.2f}"
+    )
 
 async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update):
