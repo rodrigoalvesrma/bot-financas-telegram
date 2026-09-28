@@ -50,7 +50,8 @@ credenciais_dict = json.loads(credenciais_json)
 creds = ServiceAccountCredentials.from_json_keyfile_dict(credenciais_dict, scope)
 client = gspread.authorize(creds)
 
-sheet = client.open("Controle Financeiro").sheet1
+planilha = client.open("Controle Financeiro")
+sheet = planilha.sheet1
 
 # ----------------------------
 # CATEGORIAS AUTOMÁTICAS
@@ -114,8 +115,23 @@ mapa_categorias = {
 
     "Pets": [
         "pet", "racao", "veterinario", "banho", "tosa", "petshop"
+    ],
+
+    "Investimentos": [
+        "investimento", "investir", "aporte", "tesouro direto", "cdb", "lci",
+        "lca", "acao", "acoes", "fii", "fundos", "cripto", "bitcoin",
+        "poupanca", "renda fixa", "corretora"
     ]
 
+}
+
+GRUPOS_PRINCIPAIS = {
+    "Custos fixos": {
+        "Transporte", "Moradia", "Saúde", "Educação", "Serviços",
+        "Impostos e Taxas", "Pets"
+    },
+    "Investimentos": {"Investimentos"},
+    "Eventuais": {"Alimentação", "Lazer", "Compras", "Outros"}
 }
 
 def detectar_categoria(texto):
@@ -167,30 +183,9 @@ def eh_entrada_por_descricao(descricao):
     return False
 
 
-FORMAS_PAGAMENTO = {
-    "Crédito": [
-        "cartao de credito", "cartao credito", "credito", "credit", "cc"
-    ],
-    "Débito": [
-        "cartao de debito", "cartao debito", "debito", "debit", "cd"
-    ],
-    "Pix": [
-        "pix"
-    ],
-    "Dinheiro": [
-        "dinheiro", "cash", "especie"
-    ],
-    "Boleto": [
-        "boleto"
-    ],
-    "Transferência": [
-        "transferencia", "ted", "doc"
-    ]
-}
-
 PALAVRAS_SAIDA = [
     "paguei", "pago", "pagamento", "gastei", "gasto", "comprei", "compra",
-    "despesa", "saida", "debito", "debitar", "pagar"
+    "despesa", "saida", "pagar"
 ]
 
 PALAVRAS_IGNORADAS_DESCRICAO = {
@@ -246,25 +241,6 @@ def extrair_valor_da_mensagem(texto):
     sinal = escolhido.group("sinal")
 
     return valor, texto_sem_valor, sinal
-
-
-def detectar_forma_pagamento(descricao):
-
-    descricao_limpa = limpar_texto(descricao)
-    forma_detectada = "Outro"
-
-    for forma, aliases in FORMAS_PAGAMENTO.items():
-        for alias in aliases:
-            alias_limpo = limpar_texto(alias)
-            padrao = r"\b" + re.escape(alias_limpo) + r"\b"
-
-            if re.search(padrao, descricao_limpa):
-                forma_detectada = forma
-                descricao_limpa = re.sub(padrao, " ", descricao_limpa)
-                descricao_limpa = re.sub(r"\s+", " ", descricao_limpa).strip()
-                return forma_detectada, descricao_limpa
-
-    return forma_detectada, descricao_limpa
 
 
 def detectar_tipo_mensagem(descricao, sinal):
@@ -355,16 +331,126 @@ def tipo_lancamento(tipo_bruto):
     return None
 
 
-def forma_e_credito(forma_bruta):
-
-    forma = normalizar_texto_calculo(forma_bruta)
-
-    return forma in ("credito", "crdito", "credit", "cc") or "credito" in forma
-
-
 def valor_lancamento(valor_bruto):
 
     return abs(parse_valor(valor_bruto))
+
+
+CONFIG_PADRAO = {
+    "percentual_custos_fixos": "50",
+    "percentual_investimentos": "20",
+    "percentual_eventuais": "30"
+}
+NOME_ABA_CONFIGURACOES = "Configuracoes Bot"
+
+
+def obter_aba_configuracoes():
+
+    try:
+        return planilha.worksheet(NOME_ABA_CONFIGURACOES)
+    except gspread.exceptions.WorksheetNotFound:
+        aba = planilha.add_worksheet(title=NOME_ABA_CONFIGURACOES, rows=30, cols=2)
+        aba.append_row(["Chave", "Valor"])
+        for chave, valor in CONFIG_PADRAO.items():
+            aba.append_row([chave, valor])
+        return aba
+
+
+def ler_configuracoes():
+
+    configuracoes = CONFIG_PADRAO.copy()
+    valores = obter_aba_configuracoes().get_all_values()
+
+    for linha in valores[1:]:
+        if len(linha) >= 2 and linha[0].strip():
+            configuracoes[linha[0].strip()] = linha[1].strip()
+
+    return configuracoes
+
+
+def salvar_configuracao(chave, valor):
+
+    aba = obter_aba_configuracoes()
+    valores = aba.get_all_values()
+
+    for numero_linha, linha in enumerate(valores[1:], start=2):
+        if len(linha) >= 1 and linha[0].strip() == chave:
+            aba.update_cell(numero_linha, 2, str(valor))
+            return
+
+    aba.append_row([chave, str(valor)])
+
+
+def grupo_principal(categoria):
+
+    categoria_normalizada = normalizar_texto_calculo(categoria)
+
+    for grupo, categorias in GRUPOS_PRINCIPAIS.items():
+        categorias_normalizadas = {
+            normalizar_texto_calculo(item) for item in categorias
+        }
+        if categoria_normalizada in categorias_normalizadas:
+            return grupo
+
+    return "Eventuais"
+
+
+def gastos_por_grupo(registros, periodo_mes_ano):
+
+    gastos = {grupo: 0.0 for grupo in GRUPOS_PRINCIPAIS}
+
+    for registro in registros:
+        if not data_no_periodo(campo_registro(registro, "Data", 0), periodo_mes_ano):
+            continue
+
+        if tipo_lancamento(campo_registro(registro, "Tipo", 1)) != "Saida":
+            continue
+
+        categoria = campo_registro(registro, "Categoria", 2)
+        grupo = grupo_principal(categoria)
+        gastos[grupo] += valor_lancamento(campo_registro(registro, "Valor", 3))
+
+    return gastos
+
+
+def percentual_configurado(configuracoes, chave):
+
+    return parse_valor(configuracoes.get(chave, CONFIG_PADRAO[chave])) / 100
+
+
+def calcular_orcamento(registros, periodo_mes_ano, configuracoes):
+
+    entradas, _, _ = calcular_entradas_saidas(registros, periodo_mes_ano)
+    teto_manual = parse_valor(configuracoes.get(f"teto_{periodo_mes_ano}", ""))
+    teto = teto_manual if teto_manual > 0 else entradas
+    gastos = gastos_por_grupo(registros, periodo_mes_ano)
+    percentuais = {
+        "Custos fixos": percentual_configurado(configuracoes, "percentual_custos_fixos"),
+        "Investimentos": percentual_configurado(configuracoes, "percentual_investimentos"),
+        "Eventuais": percentual_configurado(configuracoes, "percentual_eventuais")
+    }
+    limites = {grupo: teto * percentual for grupo, percentual in percentuais.items()}
+
+    return teto, gastos, limites, teto_manual > 0
+
+
+def avisos_do_orcamento(gastos, limites, grupo, valor):
+
+    limite = limites.get(grupo, 0.0)
+    gasto_atual = gastos.get(grupo, 0.0)
+    gasto_anterior = max(0.0, gasto_atual - valor)
+
+    if limite <= 0:
+        return []
+
+    if gasto_anterior < limite <= gasto_atual:
+        return [f"Limite atingido em {grupo}: R$ {gasto_atual:.2f} de R$ {limite:.2f}."]
+
+    alerta = limite * 0.8
+    if gasto_anterior < alerta <= gasto_atual:
+        return [f"Atenção: {grupo} chegou a 80% do limite: R$ {gasto_atual:.2f} de R$ {limite:.2f}."]
+
+    return []
 
 
 def campo_registro(registro, nome, indice):
@@ -443,11 +529,11 @@ def gastos_por_descricao_no_periodo(registros, periodo_mes_ano):
             continue
 
         data = r[0]
-        tipo = r[1]
-        valor = parse_valor(r[3])
+        tipo = tipo_lancamento(r[1])
+        valor = valor_lancamento(r[3])
         descricao = r[4].strip() if r[4] else "Sem descrição"
 
-        if periodo_mes_ano in data and tipo == "Saída":
+        if data_no_periodo(data, periodo_mes_ano) and tipo == "Saida":
             if descricao not in gastos:
                 gastos[descricao] = 0.0
             gastos[descricao] += valor
@@ -470,32 +556,44 @@ async def registrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if valor is None or valor <= 0:
         await update.message.reply_text(
-            "Formato inválido.\nExemplos:\n50 mercado debito\nmercado 50 no crédito\n+100 salario\nrecebi R$ 800 pix"
+            "Formato inválido.\nExemplos:\n50 mercado\nmercado 50\n+100 salario\nrecebi R$ 800"
         )
         return
 
-    forma, descricao_sem_forma = detectar_forma_pagamento(descricao_bruta)
-    tipo = detectar_tipo_mensagem(descricao_sem_forma, sinal)
-    descricao = padronizar_descricao(descricao_sem_forma)
+    tipo = detectar_tipo_mensagem(descricao_bruta, sinal)
+    descricao = padronizar_descricao(descricao_bruta)
     valor = round(abs(valor), 2)
 
     data = datetime.now().strftime("%d/%m/%Y")
 
     categoria = "Receitas" if tipo == "Entrada" else detectar_categoria(descricao)
+    grupo = "Receitas" if tipo == "Entrada" else grupo_principal(categoria)
 
     sheet.append_row(
-        [data, tipo, categoria, float(valor), descricao, forma],
+        [data, tipo, categoria, float(valor), descricao],
         value_input_option="USER_ENTERED"
     )
 
-    await update.message.reply_text(
+    mensagem = (
         f"Registrado!\n\n"
         f"Tipo: {tipo}\n"
-        f"Categoria: {categoria}\n"
+        f"Grupo: {grupo}\n"
+        f"Subcategoria: {categoria}\n"
         f"Descrição: {descricao}\n"
-        f"Forma: {forma}\n"
         f"Valor: R$ {valor:.2f}"
     )
+
+    if tipo == "Saída":
+        periodo = datetime.now().strftime("%m/%Y")
+        registros = sheet.get_all_values()[1:]
+        teto, gastos, limites, _ = calcular_orcamento(registros, periodo, ler_configuracoes())
+
+        if teto > 0:
+            avisos = avisos_do_orcamento(gastos, limites, grupo, valor)
+            if avisos:
+                mensagem += "\n\n" + "\n".join(avisos)
+
+    await update.message.reply_text(mensagem)
 
 async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update):
@@ -511,6 +609,113 @@ async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Saídas: R$ {saidas:.2f}\n"
         f"Saldo: R$ {saldo_total:.2f}"
     )
+
+
+async def teto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not autorizado(update):
+        return
+
+    periodo = datetime.now().strftime("%m/%Y")
+    chave = f"teto_{periodo}"
+    configuracoes = ler_configuracoes()
+
+    if not context.args:
+        valor_manual = parse_valor(configuracoes.get(chave, ""))
+        registros = sheet.get_all_values()[1:]
+        entradas, _, _ = calcular_entradas_saidas(registros, periodo)
+        valor_atual = valor_manual if valor_manual > 0 else entradas
+        origem = "manual" if valor_manual > 0 else "entradas do mês"
+        await update.message.reply_text(
+            f"Teto de {periodo}: R$ {valor_atual:.2f}\n"
+            f"Origem: {origem}.\n\n"
+            "Use /teto 3000 para definir um valor manual ou /teto auto para voltar ao salário recebido."
+        )
+        return
+
+    if normalizar_texto_calculo(context.args[0]) == "auto":
+        salvar_configuracao(chave, "")
+        await update.message.reply_text(
+            "Teto manual removido. O orçamento voltará a usar as entradas deste mês."
+        )
+        return
+
+    valor = parse_valor(context.args[0])
+    if valor <= 0:
+        await update.message.reply_text("Informe um teto válido. Exemplo: /teto 3000")
+        return
+
+    salvar_configuracao(chave, f"{valor:.2f}")
+    await update.message.reply_text(f"Teto de {periodo} definido em R$ {valor:.2f}.")
+
+
+async def limites(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not autorizado(update):
+        return
+
+    configuracoes = ler_configuracoes()
+
+    if not context.args:
+        fixos = parse_valor(configuracoes["percentual_custos_fixos"])
+        investimentos = parse_valor(configuracoes["percentual_investimentos"])
+        eventuais = parse_valor(configuracoes["percentual_eventuais"])
+        await update.message.reply_text(
+            "Divisão atual do teto:\n\n"
+            f"Custos fixos: {fixos:.0f}%\n"
+            f"Investimentos: {investimentos:.0f}%\n"
+            f"Eventuais: {eventuais:.0f}%\n\n"
+            "Para alterar: /limites 50 20 30"
+        )
+        return
+
+    if len(context.args) != 3:
+        await update.message.reply_text("Use /limites 50 20 30")
+        return
+
+    valores = [parse_valor(valor) for valor in context.args]
+    if any(valor < 0 for valor in valores) or abs(sum(valores) - 100) > 0.01:
+        await update.message.reply_text("Os três percentuais não podem ser negativos e devem somar exatamente 100.")
+        return
+
+    salvar_configuracao("percentual_custos_fixos", valores[0])
+    salvar_configuracao("percentual_investimentos", valores[1])
+    salvar_configuracao("percentual_eventuais", valores[2])
+    await update.message.reply_text(
+        f"Limites atualizados: Custos fixos {valores[0]:.0f}%, "
+        f"Investimentos {valores[1]:.0f}% e Eventuais {valores[2]:.0f}%."
+    )
+
+
+async def orcamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not autorizado(update):
+        return
+
+    periodo = datetime.now().strftime("%m/%Y")
+    registros = sheet.get_all_values()[1:]
+    teto_mensal, gastos, limites, teto_manual = calcular_orcamento(
+        registros, periodo, ler_configuracoes()
+    )
+    origem = "teto manual" if teto_manual else "entradas do mês"
+    linhas = [
+        f"Orçamento de {periodo}",
+        "",
+        f"Teto ({origem}): R$ {teto_mensal:.2f}"
+    ]
+
+    for grupo in GRUPOS_PRINCIPAIS:
+        gasto = gastos[grupo]
+        limite = limites[grupo]
+        percentual = (gasto / limite * 100) if limite else 0
+        linhas.append(
+            f"{grupo}: R$ {gasto:.2f} de R$ {limite:.2f} ({percentual:.0f}%)"
+        )
+
+    if teto_mensal <= 0:
+        linhas.extend(["", "Registre o salário/receitas do mês ou defina um teto com /teto 3000."])
+
+    await update.message.reply_text("\n".join(linhas))
 
 from datetime import datetime
 
@@ -623,30 +828,11 @@ async def categorias(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update):
         return
 
-    registros = sheet.get_all_values()
-
+    registros = sheet.get_all_values()[1:]
     mes_atual = datetime.now().strftime("%m/%Y")
-    categorias_total = {}
+    categorias_total = gastos_por_grupo(registros, mes_atual)
 
-    for r in registros[1:]:
-
-        if len(r) < 4:
-            continue
-
-        data = r[0]
-        tipo = r[1]
-
-        if mes_atual in data and tipo == "Saída":
-
-            categoria = r[2]
-            valor = parse_valor(r[3])
-
-            if categoria not in categorias_total:
-                categorias_total[categoria] = 0
-
-            categorias_total[categoria] += valor
-
-    mensagem = "Gastos por categoria\n\n"
+    mensagem = "Gastos por grupo\n\n"
 
     for cat, valor in categorias_total.items():
         mensagem += f"{cat}: R$ {valor:.2f}\n"
@@ -820,38 +1006,6 @@ async def mesanterior(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Saldo: R$ {saldo:.2f}"
     )
 
-async def cartao(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    if not autorizado(update):
-        return
-
-    registros = sheet.get_all_values()
-
-    agora = datetime.now()
-    mes_atual = agora.strftime("%m/%Y")
-
-    total_credito = 0.0
-    quantidade = 0
-
-    for r in registros[1:]:
-
-        if len(r) < 6:
-            continue
-
-        data = r[0]
-        tipo = tipo_lancamento(r[1])
-        valor = valor_lancamento(r[3])
-
-        if data_no_periodo(data, mes_atual) and tipo == "Saida" and forma_e_credito(r[5]):
-            total_credito += valor
-            quantidade += 1
-
-    await update.message.reply_text(
-        f"Gastos no crédito ({mes_atual}):\n\n"
-        f"Total: R$ {total_credito:.2f}\n"
-        f"Lançamentos: {quantidade}"
-    )
-
 async def apagar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not context.args:
@@ -896,7 +1050,9 @@ app.add_handler(CommandHandler("hoje", hoje))
 app.add_handler(CommandHandler("grafico", grafico))
 app.add_handler(CommandHandler("mesgrafico", mesgrafico))
 app.add_handler(CommandHandler("ultimos", ultimos))
-app.add_handler(CommandHandler("cartao", cartao))
+app.add_handler(CommandHandler("teto", teto))
+app.add_handler(CommandHandler("limites", limites))
+app.add_handler(CommandHandler("orcamento", orcamento))
 app.add_handler(CommandHandler("apagar", apagar))
 
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, registrar))
