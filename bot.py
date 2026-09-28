@@ -1035,7 +1035,7 @@ def autorizado(update):
 # INICIAR BOT
 # ----------------------------
 
-TOKEN = "8571302338:AAELRp-vYSTjXMrem22xZqIn9Xfo5X9o9Pk"
+TOKEN = os.getenv("TELEGRAM_TOKEN")
 
 app = ApplicationBuilder().token(TOKEN).build()
 app.add_handler(CommandHandler("saldo", saldo))
