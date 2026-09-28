@@ -19,7 +19,7 @@ threading.Thread(target=run_web).start()
 import matplotlib.pyplot as plt
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from telegram import Update
+from telegram import Update, BotCommand
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 from datetime import datetime
 def limpar_texto(texto):
@@ -339,7 +339,8 @@ def valor_lancamento(valor_bruto):
 CONFIG_PADRAO = {
     "percentual_custos_fixos": "50",
     "percentual_investimentos": "20",
-    "percentual_eventuais": "30"
+    "percentual_eventuais": "30",
+    "percentual_alerta": "80"
 }
 NOME_ABA_CONFIGURACOES = "Configuracoes Bot"
 
@@ -418,23 +419,59 @@ def percentual_configurado(configuracoes, chave):
     return parse_valor(configuracoes.get(chave, CONFIG_PADRAO[chave])) / 100
 
 
+def calcular_teto_mensal(registros, periodo_mes_ano, configuracoes):
+    """
+    Define o teto mensal da seguinte forma:
+    1. Se houver teto manual para o mês, usa o teto manual.
+    2. Caso contrário, soma lançamentos de Entrada cuja descrição contenha
+       "salario" ou "salários".
+    3. Se não houver salário identificado, usa o total de Entradas do mês.
+    """
+    teto_manual = parse_valor(configuracoes.get(f"teto_{periodo_mes_ano}", ""))
+
+    if teto_manual > 0:
+        return teto_manual, "manual"
+
+    salario = 0.0
+    entradas = 0.0
+
+    for registro in registros:
+        if not data_no_periodo(campo_registro(registro, "Data", 0), periodo_mes_ano):
+            continue
+
+        if tipo_lancamento(campo_registro(registro, "Tipo", 1)) != "Entrada":
+            continue
+
+        valor = valor_lancamento(campo_registro(registro, "Valor", 3))
+        entradas += valor
+
+        descricao = limpar_texto(campo_registro(registro, "Descrição", 4))
+        if any(palavra in descricao.split() for palavra in ("salario", "salarios")):
+            salario += valor
+
+    if salario > 0:
+        return salario, "salário"
+
+    return entradas, "entradas do mês"
+
+
 def calcular_orcamento(registros, periodo_mes_ano, configuracoes):
 
-    entradas, _, _ = calcular_entradas_saidas(registros, periodo_mes_ano)
-    teto_manual = parse_valor(configuracoes.get(f"teto_{periodo_mes_ano}", ""))
-    teto = teto_manual if teto_manual > 0 else entradas
+    teto, origem = calcular_teto_mensal(registros, periodo_mes_ano, configuracoes)
     gastos = gastos_por_grupo(registros, periodo_mes_ano)
+
     percentuais = {
         "Custos fixos": percentual_configurado(configuracoes, "percentual_custos_fixos"),
         "Investimentos": percentual_configurado(configuracoes, "percentual_investimentos"),
         "Eventuais": percentual_configurado(configuracoes, "percentual_eventuais")
     }
+
     limites = {grupo: teto * percentual for grupo, percentual in percentuais.items()}
 
-    return teto, gastos, limites, teto_manual > 0
+    return teto, gastos, limites, origem
 
 
-def avisos_do_orcamento(gastos, limites, grupo, valor):
+def avisos_do_orcamento(gastos, limites, grupo, valor, configuracoes=None):
 
     limite = limites.get(grupo, 0.0)
     gasto_atual = gastos.get(grupo, 0.0)
@@ -443,12 +480,30 @@ def avisos_do_orcamento(gastos, limites, grupo, valor):
     if limite <= 0:
         return []
 
-    if gasto_anterior < limite <= gasto_atual:
-        return [f"Limite atingido em {grupo}: R$ {gasto_atual:.2f} de R$ {limite:.2f}."]
+    configuracoes = configuracoes or CONFIG_PADRAO
+    percentual_alerta = parse_valor(
+        configuracoes.get("percentual_alerta", CONFIG_PADRAO["percentual_alerta"])
+    )
+    percentual_alerta = max(0.0, min(100.0, percentual_alerta))
+    alerta = limite * (percentual_alerta / 100)
 
-    alerta = limite * 0.8
+    if gasto_anterior < limite <= gasto_atual:
+        excedente = gasto_atual - limite
+        return [
+            f"🚨 LIMITE ATINGIDO: {grupo}",
+            f"Gasto: R$ {gasto_atual:.2f}",
+            f"Limite: R$ {limite:.2f}",
+            f"Excedente: R$ {excedente:.2f}"
+        ]
+
     if gasto_anterior < alerta <= gasto_atual:
-        return [f"Atenção: {grupo} chegou a 80% do limite: R$ {gasto_atual:.2f} de R$ {limite:.2f}."]
+        restante = max(0.0, limite - gasto_atual)
+        return [
+            f"⚠️ Atenção: {grupo} chegou a {percentual_alerta:.0f}% do limite.",
+            f"Gasto: R$ {gasto_atual:.2f}",
+            f"Limite: R$ {limite:.2f}",
+            f"Restante: R$ {restante:.2f}"
+        ]
 
     return []
 
@@ -586,14 +641,41 @@ async def registrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if tipo == "Saída":
         periodo = datetime.now().strftime("%m/%Y")
         registros = sheet.get_all_values()[1:]
-        teto, gastos, limites, _ = calcular_orcamento(registros, periodo, ler_configuracoes())
+        configuracoes = ler_configuracoes()
+        teto, gastos, limites, _ = calcular_orcamento(registros, periodo, configuracoes)
 
         if teto > 0:
-            avisos = avisos_do_orcamento(gastos, limites, grupo, valor)
+            avisos = avisos_do_orcamento(gastos, limites, grupo, valor, configuracoes)
             if avisos:
                 mensagem += "\n\n" + "\n".join(avisos)
 
     await update.message.reply_text(mensagem)
+
+async def ajuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not autorizado(update):
+        return
+
+    await update.message.reply_text(
+        "Como usar o controle financeiro:\n\n"
+        "50 supermercado\n"
+        "+7000 salario\n"
+        "500 CDB\n\n"
+        "O bot classifica automaticamente em 3 grupos:\n"
+        "• Custos fixos: 50%\n"
+        "• Investimentos: 20%\n"
+        "• Eventuais: 30%\n\n"
+        "Comandos principais:\n"
+        "/saldo - saldo total\n"
+        "/mes - resumo do mês\n"
+        "/categorias - gastos por grupo\n"
+        "/orcamento - acompanhamento dos limites\n"
+        "/teto - consultar/alterar teto\n"
+        "/limites - alterar 50/20/30\n"
+        "/ultimos - últimos lançamentos\n"
+        "/apagar - apagar lançamento"
+    )
+
 
 async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update):
@@ -619,34 +701,34 @@ async def teto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     periodo = datetime.now().strftime("%m/%Y")
     chave = f"teto_{periodo}"
     configuracoes = ler_configuracoes()
+    registros = sheet.get_all_values()[1:]
 
     if not context.args:
-        valor_manual = parse_valor(configuracoes.get(chave, ""))
-        registros = sheet.get_all_values()[1:]
-        entradas, _, _ = calcular_entradas_saidas(registros, periodo)
-        valor_atual = valor_manual if valor_manual > 0 else entradas
-        origem = "manual" if valor_manual > 0 else "entradas do mês"
+        valor_atual, origem = calcular_teto_mensal(registros, periodo, configuracoes)
         await update.message.reply_text(
             f"Teto de {periodo}: R$ {valor_atual:.2f}\n"
             f"Origem: {origem}.\n\n"
-            "Use /teto 3000 para definir um valor manual ou /teto auto para voltar ao salário recebido."
+            "Use /teto 7000 para definir um teto manual.\n"
+            "Use /teto auto para voltar ao salário recebido no mês."
         )
         return
 
     if normalizar_texto_calculo(context.args[0]) == "auto":
         salvar_configuracao(chave, "")
         await update.message.reply_text(
-            "Teto manual removido. O orçamento voltará a usar as entradas deste mês."
+            "Teto manual removido. O orçamento voltará a usar o salário recebido no mês."
         )
         return
 
     valor = parse_valor(context.args[0])
     if valor <= 0:
-        await update.message.reply_text("Informe um teto válido. Exemplo: /teto 3000")
+        await update.message.reply_text("Informe um teto válido. Exemplo: /teto 7000")
         return
 
     salvar_configuracao(chave, f"{valor:.2f}")
-    await update.message.reply_text(f"Teto de {periodo} definido em R$ {valor:.2f}.")
+    await update.message.reply_text(
+        f"Teto manual de {periodo} definido em R$ {valor:.2f}."
+    )
 
 
 async def limites(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -694,10 +776,9 @@ async def orcamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     periodo = datetime.now().strftime("%m/%Y")
     registros = sheet.get_all_values()[1:]
-    teto_mensal, gastos, limites, teto_manual = calcular_orcamento(
+    teto_mensal, gastos, limites, origem = calcular_orcamento(
         registros, periodo, ler_configuracoes()
     )
-    origem = "teto manual" if teto_manual else "entradas do mês"
     linhas = [
         f"Orçamento de {periodo}",
         "",
@@ -713,7 +794,7 @@ async def orcamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     if teto_mensal <= 0:
-        linhas.extend(["", "Registre o salário/receitas do mês ou defina um teto com /teto 3000."])
+        linhas.extend(["", "Registre seu salário/entrada do mês ou defina um teto manual com /teto 7000."])
 
     await update.message.reply_text("\n".join(linhas))
 
@@ -830,12 +911,33 @@ async def categorias(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     registros = sheet.get_all_values()[1:]
     mes_atual = datetime.now().strftime("%m/%Y")
-    categorias_total = gastos_por_grupo(registros, mes_atual)
+    configuracoes = ler_configuracoes()
 
-    mensagem = "Gastos por grupo\n\n"
+    teto_mensal, gastos, limites, origem = calcular_orcamento(
+        registros, mes_atual, configuracoes
+    )
 
-    for cat, valor in categorias_total.items():
-        mensagem += f"{cat}: R$ {valor:.2f}\n"
+    mensagem = (
+        f"Gastos por grupo ({mes_atual})\n\n"
+        f"Teto: R$ {teto_mensal:.2f} ({origem})\n\n"
+    )
+
+    for grupo in GRUPOS_PRINCIPAIS:
+        gasto = gastos[grupo]
+        limite = limites[grupo]
+        restante = limite - gasto
+        percentual = (gasto / limite * 100) if limite > 0 else 0
+
+        if restante >= 0:
+            situacao = f"restante: R$ {restante:.2f}"
+        else:
+            situacao = f"excedido: R$ {abs(restante):.2f}"
+
+        mensagem += (
+            f"{grupo}: R$ {gasto:.2f} / R$ {limite:.2f} "
+            f"({percentual:.0f}%)\n"
+            f"→ {situacao}\n\n"
+        )
 
     await update.message.reply_text(mensagem)
 
@@ -1037,7 +1139,37 @@ def autorizado(update):
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-app = ApplicationBuilder().token(TOKEN).build()
+
+async def configurar_comandos(application):
+    """
+    Substitui a lista antiga de comandos do Telegram.
+    Isso remove do menu qualquer comando antigo de crédito/débito
+    que tenha sido cadastrado anteriormente no BotFather.
+    """
+    comandos = [
+        BotCommand("saldo", "Ver saldo total"),
+        BotCommand("mes", "Resumo do mês atual"),
+        BotCommand("mesanterior", "Resumo do mês anterior"),
+        BotCommand("saldoanterior", "Saldo do mês anterior"),
+        BotCommand("compararmes", "Comparar mês atual e anterior"),
+        BotCommand("categorias", "Ver gastos por grupo"),
+        BotCommand("subcategorias", "Ver gastos por descrição"),
+        BotCommand("subcategoriasanterior", "Ver gastos anteriores por descrição"),
+        BotCommand("hoje", "Ver gastos de hoje"),
+        BotCommand("grafico", "Gráfico de gastos"),
+        BotCommand("mesgrafico", "Gráfico do mês"),
+        BotCommand("ultimos", "Ver últimos lançamentos"),
+        BotCommand("teto", "Consultar ou alterar o teto mensal"),
+        BotCommand("limites", "Consultar ou alterar os percentuais"),
+        BotCommand("orcamento", "Ver orçamento do mês"),
+        BotCommand("apagar", "Apagar um lançamento")
+    ]
+
+    await application.bot.set_my_commands(comandos)
+
+
+app = ApplicationBuilder().token(TOKEN).post_init(configurar_comandos).build()
+app.add_handler(CommandHandler("ajuda", ajuda))
 app.add_handler(CommandHandler("saldo", saldo))
 app.add_handler(CommandHandler("mes", mes))
 app.add_handler(CommandHandler("mesanterior", mesanterior))
